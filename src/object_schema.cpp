@@ -25,6 +25,7 @@
 
 using namespace realm;
 
+ObjectSchema::ObjectSchema() = default;
 ObjectSchema::~ObjectSchema() = default;
 
 ObjectSchema::ObjectSchema(std::string name, std::string primary_key, std::initializer_list<Property> properties)
