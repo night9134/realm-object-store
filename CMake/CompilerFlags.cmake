@@ -2,7 +2,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED on)
 set(CMAKE_CXX_EXTENSIONS off)
 add_compile_options(-Wall -DREALM_HAVE_CONFIG)
-add_compile_options("$<$<CONFIG:DEBUG>:-DREALM_DEBUG>")
+add_compile_options($<$<CONFIG:DEBUG>:-DREALM_DEBUG> $<$<CONFIG:COVERAGE>:-DREALM_DEBUG>)
 
 if(${CMAKE_GENERATOR} STREQUAL "Ninja")
     if(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
