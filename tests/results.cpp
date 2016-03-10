@@ -58,15 +58,13 @@ TEST_CASE("Results") {
             ++notification_calls;
         });
 
-        coordinator->on_change();
-        r->notify();
+        advance_and_notify(*r);
 
         auto write = [&](auto&& f) {
             r->begin_transaction();
             f();
             r->commit_transaction();
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
         };
 
         SECTION("initial results are delivered") {
@@ -79,8 +77,7 @@ TEST_CASE("Results") {
             r->commit_transaction();
 
             REQUIRE(notification_calls == 1);
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
             REQUIRE(notification_calls == 2);
         }
 
@@ -91,8 +88,7 @@ TEST_CASE("Results") {
 
             REQUIRE(notification_calls == 1);
             token = {};
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
             REQUIRE(notification_calls == 1);
         }
 
@@ -117,9 +113,7 @@ TEST_CASE("Results") {
                 });
             });
 
-            coordinator->on_change();
-            r->notify();
-
+            advance_and_notify(*r);
             REQUIRE(called);
         }
 
@@ -132,8 +126,7 @@ TEST_CASE("Results") {
                 REQUIRE(false);
             });
 
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
         }
 
         SECTION("removing the current callback does not stop later ones from being called") {
@@ -146,8 +139,7 @@ TEST_CASE("Results") {
                 called = true;
             });
 
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
 
             REQUIRE(called);
         }
@@ -307,15 +299,13 @@ TEST_CASE("Results") {
             ++notification_calls;
         });
 
-        coordinator->on_change();
-        r->notify();
+        advance_and_notify(*r);
 
         auto write = [&](auto&& f) {
             r->begin_transaction();
             f();
             r->commit_transaction();
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
         };
 
         SECTION("modifications that leave a non-matching row non-matching do not send notifications") {
@@ -392,8 +382,7 @@ TEST_CASE("Results") {
             r->commit_transaction();
 
             REQUIRE(notification_calls == 1);
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
             REQUIRE(notification_calls == 2);
         }
     }
@@ -438,8 +427,7 @@ TEST_CASE("Async Results error handling") {
                 called = true;
             });
 
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
 
             bool called2 = false;
             auto token2 = results.add_notification_callback([&](CollectionChangeIndices, std::exception_ptr err) {
@@ -448,9 +436,7 @@ TEST_CASE("Async Results error handling") {
                 called2 = true;
             });
 
-            coordinator->on_change();
-            r->notify();
-
+            advance_and_notify(*r);
             REQUIRE(called2);
         }
     }
@@ -480,8 +466,7 @@ TEST_CASE("Async Results error handling") {
             });
             unlink(config.path.c_str());
 
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
 
             bool called2 = false;
             auto token2 = results.add_notification_callback([&](CollectionChangeIndices, std::exception_ptr err) {
@@ -490,8 +475,7 @@ TEST_CASE("Async Results error handling") {
                 called2 = true;
             });
 
-            coordinator->on_change();
-            r->notify();
+            advance_and_notify(*r);
 
             REQUIRE(called2);
         }
