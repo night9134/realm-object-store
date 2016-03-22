@@ -465,11 +465,12 @@ void Results::Internal::set_table_view(Results& results, realm::TableView &&tv)
         results.m_wants_background_updates = results.m_has_used_table_view;
     }
 
-    results.m_table_view = std::move(tv);
-    results.m_mode = Mode::TableView;
-    results.m_has_used_table_view = false;
-    REALM_ASSERT(results.m_table_view.is_in_sync());
-    REALM_ASSERT(results.m_table_view.is_attached());
+    results.m_table_view = {};
+//    results.m_table_view = std::move(tv);
+//    results.m_mode = Mode::TableView;
+//    results.m_has_used_table_view = false;
+//    REALM_ASSERT(results.m_table_view.is_in_sync());
+//    REALM_ASSERT(results.m_table_view.is_attached());
 }
 
 Results::UnsupportedColumnTypeException::UnsupportedColumnTypeException(size_t column, const Table* table)

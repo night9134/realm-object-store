@@ -65,6 +65,15 @@ static void run_commit(RealmState& state)
     state.realm.begin_transaction();
 }
 
+static void run_commit_and_notify(RealmState& state)
+{
+    log("commit and notify\n");
+    state.realm.commit_transaction();
+    state.coordinator.on_change();
+    state.realm.notify();
+    state.realm.begin_transaction();
+}
+
 static void run_lv_insert(RealmState& state, size_t pos, size_t target)
 {
     if (!state.lv) return;
@@ -135,9 +144,11 @@ static void run_lv_remove_target(RealmState& state, size_t pos)
 }
 
 static std::map<char, std::function<std::function<void (RealmState&)>(std::istream&)>> readers = {
+    {'c', make_reader(run_commit)},
+    {'C', make_reader(run_commit_and_notify)},
+
     // Row functions
     {'a', make_reader(run_add)},
-    {'c', make_reader(run_commit)},
     {'d', make_reader(run_delete)},
     {'m', make_reader(run_modify)},
 

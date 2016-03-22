@@ -205,9 +205,11 @@ static void test(Realm::Config const& config, SharedRealm& r, SharedRealm& r2, s
         abort();
     }
 
-    bool expect_notification = apply_changes(command, state2);
+    command.run(state2);
     state.coordinator.on_change(); r->notify();
+    return;
 
+    bool expect_notification = false;
     if (expect_notification) {
         if (notification_calls != 2)
             abort();
