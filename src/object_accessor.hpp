@@ -109,25 +109,32 @@ namespace realm {
         static Mixed to_mixed(ContextType ctx, ValueType &val) { throw std::runtime_error("'Any' type is unsupported"); }
     };
 
-    class InvalidPropertyException : public std::runtime_error
-    {
-      public:
-        InvalidPropertyException(const std::string object_type, const std::string property_name, const std::string message) : std::runtime_error(message), object_type(object_type), property_name(property_name) {}
-        const std::string object_type;
-        const std::string property_name;
-    };
-
-    class MissingPropertyValueException : public std::runtime_error
-    {
+    class InvalidPropertyException : public std::runtime_error {
     public:
-        MissingPropertyValueException(const std::string object_type, const std::string property_name, const std::string message) : std::runtime_error(message), object_type(object_type), property_name(property_name) {}
+        InvalidPropertyException(const std::string& object_type, const std::string& property_name, const std::string& message)
+        : std::runtime_error(message), object_type(object_type), property_name(property_name) {}
         const std::string object_type;
         const std::string property_name;
     };
 
-    class MutationOutsideTransactionException : public std::runtime_error
-    {
-      public:
+    class MissingPropertyValueException : public std::runtime_error {
+    public:
+        MissingPropertyValueException(const std::string& object_type, const std::string& property_name, const std::string& message)
+        : std::runtime_error(message), object_type(object_type), property_name(property_name) {}
+        const std::string object_type;
+        const std::string property_name;
+    };
+
+    class ReadOnlyPropertyValueException : public std::runtime_error {
+    public:
+        ReadOnlyPropertyValueException(const std::string& object_type, const std::string& property_name, const std::string& message)
+        : std::runtime_error(message), object_type(object_type), property_name(property_name) {}
+        const std::string object_type;
+        const std::string property_name;
+    };
+
+    class MutationOutsideTransactionException : public std::runtime_error {
+    public:
         MutationOutsideTransactionException(std::string message) : std::runtime_error(message) {}
     };
 
@@ -217,6 +224,9 @@ namespace realm {
                 }
                 break;
             }
+            case PropertyType::LinkingObjects:
+                throw ReadOnlyPropertyValueException(m_object_schema->name, property.name,
+                                                     "Cannot modify read-only property " + m_object_schema->name + "." + property.name);
         }
     }
 
@@ -259,6 +269,9 @@ namespace realm {
                 auto arrayObjectSchema = m_realm->config().schema->find(property.object_type);
                 return Accessor::from_list(ctx, std::move(List(m_realm, *arrayObjectSchema, static_cast<LinkViewRef>(m_row.get_linklist(column)))));
             }
+            case PropertyType::LinkingObjects:
+                // FIXME: implement
+                throw std::runtime_error("not implemented");
         }
     }
 
@@ -303,7 +316,7 @@ namespace realm {
 
         // populate
         Object object(realm, object_schema, table->get(row_index));
-        for (const Property &prop : object_schema.properties) {
+        for (const Property& prop : object_schema.persisted_properties) {
             if (created || !prop.is_primary) {
                 if (Accessor::dict_has_value_for_key(ctx, value, prop.name)) {
                     object.set_property_value_impl(ctx, prop, Accessor::dict_value_for_key(ctx, value, prop.name), try_update);
