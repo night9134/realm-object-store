@@ -66,7 +66,7 @@ bool List::is_valid() const
 void List::verify_attached() const
 {
     if (!is_valid()) {
-        throw std::runtime_error("LinkView is not attached");
+        throw std::logic_error("LinkView is not attached");
     }
 }
 
