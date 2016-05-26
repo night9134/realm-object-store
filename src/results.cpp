@@ -22,6 +22,7 @@
 #include "impl/results_notifier.hpp"
 #include "object_schema.hpp"
 #include "object_store.hpp"
+#include "object_schema.hpp"
 #include "util/format.hpp"
 
 #include <stdexcept>
@@ -507,7 +508,7 @@ Results Results::filter(Query&& q) const
 
 void Results::prepare_async()
 {
-    if (m_realm->config().read_only) {
+    if (m_realm->config().read_only()) {
         throw InvalidTransactionException("Cannot create asynchronous query for read-only Realms");
     }
     if (m_realm->is_in_transaction()) {

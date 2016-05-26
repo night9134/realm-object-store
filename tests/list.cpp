@@ -22,26 +22,26 @@ TEST_CASE("list") {
     InMemoryTestFile config;
     config.automatic_change_notifications = false;
     config.cache = false;
-    config.schema = std::make_unique<Schema>(Schema{
-        {"origin", "", {
+    auto r = Realm::get_shared_realm(config);
+    r->update_schema({
+        {"origin", {
             {"array", PropertyType::Array, "target"}
         }},
-        {"target", "", {
+        {"target", {
             {"value", PropertyType::Int}
         }},
-        {"other_origin", "", {
+        {"other_origin", {
             {"array", PropertyType::Array, "other_target"}
         }},
-        {"other_target", "", {
+        {"other_target", {
             {"value", PropertyType::Int}
         }},
     });
 
-    auto r = Realm::get_shared_realm(config);
     auto& coordinator = *_impl::RealmCoordinator::get_existing_coordinator(config.path);
 
-    auto origin = r->read_group()->get_table("class_origin");
-    auto target = r->read_group()->get_table("class_target");
+    auto origin = r->read_group().get_table("class_origin");
+    auto target = r->read_group().get_table("class_target");
 
     r->begin_transaction();
 
@@ -61,7 +61,7 @@ TEST_CASE("list") {
 
     SECTION("add_notification_block()") {
         CollectionChangeSet change;
-        List lst(r, *r->config().schema->find("origin"), lv);
+        List lst(r, *r->schema().find("origin"), lv);
 
         auto write = [&](auto&& f) {
             r->begin_transaction();
@@ -189,8 +189,8 @@ TEST_CASE("list") {
 
             auto get_list = [&] {
                 auto r = Realm::get_shared_realm(config);
-                auto lv = r->read_group()->get_table("class_origin")->get_linklist(0, 0);
-                return List(r, *r->config().schema->find("origin"), lv);
+                auto lv = r->read_group().get_table("class_origin")->get_linklist(0, 0);
+                return List(r, *r->schema().find("origin"), lv);
             };
             auto change_list = [&] {
                 r->begin_transaction();
@@ -240,8 +240,8 @@ TEST_CASE("list") {
         }
 
         SECTION("tables-of-interest are tracked properly for multiple source versions") {
-            auto other_origin = r->read_group()->get_table("class_other_origin");
-            auto other_target = r->read_group()->get_table("class_other_target");
+            auto other_origin = r->read_group().get_table("class_other_origin");
+            auto other_target = r->read_group().get_table("class_other_target");
 
             r->begin_transaction();
             other_target->add_empty_row();
@@ -250,7 +250,7 @@ TEST_CASE("list") {
             lv2->add(0);
             r->commit_transaction();
 
-            List lst2(r, *r->config().schema->find("other_origin"), lv2);
+            List lst2(r, *r->schema().find("other_origin"), lv2);
 
             // Add a callback for list1, advance the version, then add a
             // callback for list2, so that the notifiers added at each source
@@ -299,7 +299,7 @@ TEST_CASE("list") {
     }
 
     SECTION("sorted add_notification_block()") {
-        List lst(r, *r->config().schema->find("origin"), lv);
+        List lst(r, *r->schema().find("origin"), lv);
         Results results = lst.sort({{0}, {false}});
 
         int notification_calls = 0;
@@ -355,7 +355,7 @@ TEST_CASE("list") {
     }
 
     SECTION("filtered add_notification_block()") {
-        List lst(r, *r->config().schema->find("origin"), lv);
+        List lst(r, *r->schema().find("origin"), lv);
         Results results = lst.filter(target->where().less(0, 9));
 
         int notification_calls = 0;
@@ -420,7 +420,7 @@ TEST_CASE("list") {
     }
 
     SECTION("sort()") {
-        auto objectschema = &*r->config().schema->find("origin");
+        auto objectschema = &*r->schema().find("origin");
         List list(r, *objectschema, lv);
         auto results = list.sort({{0}, {false}});
 
@@ -435,7 +435,7 @@ TEST_CASE("list") {
     }
 
     SECTION("filter()") {
-        auto objectschema = &*r->config().schema->find("origin");
+        auto objectschema = &*r->schema().find("origin");
         List list(r, *objectschema, lv);
         auto results = list.filter(target->where().greater(0, 5));
 
