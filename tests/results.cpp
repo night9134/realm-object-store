@@ -21,25 +21,26 @@ TEST_CASE("[results] notifications") {
     InMemoryTestFile config;
     config.cache = false;
     config.automatic_change_notifications = false;
-    config.schema = std::make_unique<Schema>(Schema{
-        {"object", "", {
+
+    auto r = Realm::get_shared_realm(config);
+    r->update_schema({
+        {"object", {
             {"value", PropertyType::Int},
             {"link", PropertyType::Object, "linked to object", "", false, false, true}
         }},
-        {"other object", "", {
+        {"other object", {
             {"value", PropertyType::Int}
         }},
-        {"linking object", "", {
+        {"linking object", {
             {"link", PropertyType::Object, "object", "", false, false, true}
         }},
-        {"linked to object", "", {
+        {"linked to object", {
             {"value", PropertyType::Int}
         }}
     });
 
-    auto r = Realm::get_shared_realm(config);
     auto coordinator = _impl::RealmCoordinator::get_existing_coordinator(config.path);
-    auto table = r->read_group()->get_table("class_object");
+    auto table = r->read_group().get_table("class_object");
 
     r->begin_transaction();
     table->add_empty_row(10);
@@ -47,7 +48,7 @@ TEST_CASE("[results] notifications") {
         table->set_int(0, i, i * 2);
     r->commit_transaction();
 
-    Results results(r, *config.schema->find("object"), table->where().greater(0, 0).less(0, 10));
+    Results results(r, *r->schema().find("object"), table->where().greater(0, 0).less(0, 10));
 
     SECTION("unsorted notifications") {
         int notification_calls = 0;
@@ -146,21 +147,21 @@ TEST_CASE("[results] notifications") {
 
         SECTION("modifications to unrelated tables do not send notifications") {
             write([&] {
-                r->read_group()->get_table("class_other object")->add_empty_row();
+                r->read_group().get_table("class_other object")->add_empty_row();
             });
             REQUIRE(notification_calls == 1);
         }
 
         SECTION("irrelevant modifications to linked tables do not send notifications") {
             write([&] {
-                r->read_group()->get_table("class_linked to object")->add_empty_row();
+                r->read_group().get_table("class_linked to object")->add_empty_row();
             });
             REQUIRE(notification_calls == 1);
         }
 
         SECTION("irrelevant modifications to linking tables do not send notifications") {
             write([&] {
-                r->read_group()->get_table("class_linking object")->add_empty_row();
+                r->read_group().get_table("class_linking object")->add_empty_row();
             });
             REQUIRE(notification_calls == 1);
         }
@@ -424,15 +425,16 @@ TEST_CASE("[results] async error handling") {
     InMemoryTestFile config;
     config.cache = false;
     config.automatic_change_notifications = false;
-    config.schema = std::make_unique<Schema>(Schema{
-        {"object", "", {
+
+    auto r = Realm::get_shared_realm(config);
+    r->update_schema({
+        {"object", {
             {"value", PropertyType::Int},
         }},
     });
 
-    auto r = Realm::get_shared_realm(config);
     auto coordinator = _impl::RealmCoordinator::get_existing_coordinator(config.path);
-    Results results(r, *config.schema->find("object"), *r->read_group()->get_table("class_object"));
+    Results results(r, *r->schema().find("object"), *r->read_group().get_table("class_object"));
 
     class OpenFileLimiter {
     public:
@@ -538,15 +540,15 @@ TEST_CASE("[results] notifications after move") {
     InMemoryTestFile config;
     config.cache = false;
     config.automatic_change_notifications = false;
-    config.schema = std::make_unique<Schema>(Schema{
-        {"object", "", {
+
+    auto r = Realm::get_shared_realm(config);
+    r->update_schema({
+        {"object", {
             {"value", PropertyType::Int},
         }},
     });
-
-    auto r = Realm::get_shared_realm(config);
-    auto table = r->read_group()->get_table("class_object");
-    auto results = std::make_unique<Results>(r, *config.schema->find("object"), *table);
+    auto table = r->read_group().get_table("class_object");
+    auto results = std::make_unique<Results>(r, *r->schema().find("object"), *table);
 
     int notification_calls = 0;
     auto token = results->add_notification_callback([&](CollectionChangeSet c, std::exception_ptr err) {
@@ -587,14 +589,14 @@ TEST_CASE("[results] notifications after move") {
 
 TEST_CASE("[results] error messages") {
     InMemoryTestFile config;
-    config.schema = std::make_unique<Schema>(Schema{
-        {"object", "", {
+    config.schema = Schema{
+        {"object", {
             {"value", PropertyType::String},
         }},
-    });
+    };
 
     auto r = Realm::get_shared_realm(config);
-    auto table = r->read_group()->get_table("class_object");
+    auto table = r->read_group().get_table("class_object");
     Results results(r, *config.schema->find("object"), *table);
 
     r->begin_transaction();
