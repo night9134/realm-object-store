@@ -566,3 +566,66 @@ TEST_CASE("[migration] Automatic") {
         }
     }
 }
+
+TEST_CASE("[migration] ResetFile") {
+    TestFile config;
+    config.schema_mode = SchemaMode::ResetFile;
+
+    Schema initial_schema = {
+        {"object", {
+            {"value", PropertyType::Int, "", "", false, false, false},
+        }},
+    };
+
+    {
+        auto realm = Realm::get_shared_realm(config);
+        realm->update_schema(initial_schema);
+        realm->begin_transaction();
+        ObjectStore::table_for_object_type(realm->read_group(), "object")->add_empty_row();
+        realm->commit_transaction();
+    }
+    auto realm = Realm::get_shared_realm(config);
+
+    SECTION("file is reset when schema version increases") {
+        realm->update_schema(initial_schema, 1);
+        REQUIRE(ObjectStore::table_for_object_type(realm->read_group(), "object")->size() == 0);
+    }
+
+    SECTION("file is reset when an existing table is modified") {
+        Schema schema = {
+            {"object", {
+                {"value", PropertyType::Int, "", "", false, false, false},
+                {"value 2", PropertyType::Int, "", "", false, false, false},
+            }},
+        };
+        realm->update_schema(schema);
+        REQUIRE(ObjectStore::table_for_object_type(realm->read_group(), "object")->size() == 0);
+    }
+
+    SECTION("file is not reset when adding a new table") {
+        Schema schema = {
+            {"object", {
+                {"value", PropertyType::Int, "", "", false, false, false},
+            }},
+            {"object 2", {
+                {"value", PropertyType::Int, "", "", false, false, false},
+            }},
+        };
+        realm->update_schema(schema);
+        REQUIRE(ObjectStore::table_for_object_type(realm->read_group(), "object")->size() == 1);
+    }
+
+    SECTION("file is not reset when adding an index") {
+        initial_schema.find("object")->property_for_name("value")->is_indexed = true;
+        realm->update_schema(initial_schema);
+        REQUIRE(ObjectStore::table_for_object_type(realm->read_group(), "object")->size() == 1);
+    }
+
+    SECTION("file is not reset when removing an index") {
+        initial_schema.find("object")->property_for_name("value")->is_indexed = true;
+        realm->update_schema(initial_schema);
+        initial_schema.find("object")->property_for_name("value")->is_indexed = false;
+        realm->update_schema(initial_schema);
+        REQUIRE(ObjectStore::table_for_object_type(realm->read_group(), "object")->size() == 1);
+    }
+}

@@ -294,6 +294,25 @@ struct IndexUpdater {
 
 } // anonymous namespace
 
+bool ObjectStore::needs_migration(std::vector<SchemaChange> const& changes)
+{
+    using namespace schema_change;
+    struct Visitor {
+        bool operator()(AddIndex op) { return false; }
+        bool operator()(AddProperty op) { return true; }
+        bool operator()(AddTable op) { return false; }
+        bool operator()(ChangePrimaryKey op) { return true; }
+        bool operator()(ChangePropertyType op) { return true; }
+        bool operator()(MakePropertyNullable op) { return true; }
+        bool operator()(MakePropertyRequired op) { return true; }
+        bool operator()(RemoveIndex op) { return false; }
+        bool operator()(RemoveProperty op) { return true; }
+    };
+
+    return std::any_of(begin(changes), end(changes),
+                       [](auto&& change) { return change.visit(Visitor()); });
+}
+
 void ObjectStore::verify_no_migration_required(std::vector<SchemaChange> const& changes)
 {
     using namespace schema_change;
