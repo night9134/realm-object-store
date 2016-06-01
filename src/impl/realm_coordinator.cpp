@@ -82,7 +82,7 @@ std::shared_ptr<Realm> RealmCoordinator::get_realm(Realm::Config config)
         }
     }
 
-    if (config.schema_mode > SchemaMode::ReadOnly)
+    if (config.schema_mode > SchemaMode::ResetFile)
         throw "not implemented";
 
     if (config.cache) {
