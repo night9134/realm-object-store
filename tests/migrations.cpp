@@ -565,6 +565,10 @@ TEST_CASE("[migration] Automatic") {
                 REQUIRE(table->get_int(0, i) == 0);
         }
     }
+
+    SECTION("property renaming") {
+
+    }
 }
 
 TEST_CASE("[migration] ResetFile") {

@@ -69,6 +69,9 @@ public:
     // indicates if this group contains any objects
     static bool is_empty(Group const& group);
 
+    // renames the object_type's column of the old_name to the new name
+    static void rename_property(Group& group, Schema& schema, StringData object_type, StringData old_name, StringData new_name);
+
     static std::string table_name_for_object_type(StringData class_name);
     static StringData object_type_for_table_name(StringData table_name);
 
@@ -90,13 +93,13 @@ private:
 
 class DuplicatePrimaryKeyValueException : public std::logic_error {
 public:
-    DuplicatePrimaryKeyValueException(std::string const& object_type, Property const& property);
+    DuplicatePrimaryKeyValueException(std::string object_type, std::string property);
 
-    std::string object_type() const { return m_object_type; }
-    Property const& property() const { return m_property; }
+    std::string const& object_type() const { return m_object_type; }
+    std::string const& property() const { return m_property; }
 private:
     std::string m_object_type;
-    Property m_property;
+    std::string m_property;
 };
 
 // Schema validation exceptions

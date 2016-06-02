@@ -298,15 +298,15 @@ bool ObjectStore::needs_migration(std::vector<SchemaChange> const& changes)
 {
     using namespace schema_change;
     struct Visitor {
-        bool operator()(AddIndex op) { return false; }
-        bool operator()(AddProperty op) { return true; }
-        bool operator()(AddTable op) { return false; }
-        bool operator()(ChangePrimaryKey op) { return true; }
-        bool operator()(ChangePropertyType op) { return true; }
-        bool operator()(MakePropertyNullable op) { return true; }
-        bool operator()(MakePropertyRequired op) { return true; }
-        bool operator()(RemoveIndex op) { return false; }
-        bool operator()(RemoveProperty op) { return true; }
+        bool operator()(AddIndex) { return false; }
+        bool operator()(AddProperty) { return true; }
+        bool operator()(AddTable) { return false; }
+        bool operator()(ChangePrimaryKey) { return true; }
+        bool operator()(ChangePropertyType) { return true; }
+        bool operator()(MakePropertyNullable) { return true; }
+        bool operator()(MakePropertyRequired) { return true; }
+        bool operator()(RemoveIndex) { return false; }
+        bool operator()(RemoveProperty) { return true; }
     };
 
     return std::any_of(begin(changes), end(changes),
@@ -519,14 +519,19 @@ static void apply_pre_migration_changes(Group& group, std::vector<SchemaChange> 
     }
 }
 
-static void apply_post_migration_changes(Group& group, std::vector<SchemaChange> const& changes)
+static void apply_post_migration_changes(Group& group, std::vector<SchemaChange> const& changes, Schema const& initial_schema)
 {
     using namespace schema_change;
-    struct Applier {
-        Group& group;
+    struct Applier : IndexUpdater {
+        Applier(Group& group, Schema const& initial_schema) : IndexUpdater{group}, initial_schema(initial_schema) { }
+        using IndexUpdater::operator();
+
+        Schema const& initial_schema;
 
         void operator()(RemoveProperty op)
         {
+            if (!initial_schema.empty() && !initial_schema.find(op.object->name)->property_for_name(op.property->name))
+                throw std::logic_error(util::format("Renamed property `%1.%2` does not exist.", op.object->name, op.property->name));
             auto table = table_for_object_schema(group, *op.object);
             table->remove_column(op.property->table_column);
         }
@@ -539,7 +544,7 @@ static void apply_post_migration_changes(Group& group, std::vector<SchemaChange>
             auto table = table_for_object_schema(group, *op.object);
             auto col = table->get_column_index(op.property->name);
             if (table->get_distinct_view(col).size() != table->size()) {
-                throw DuplicatePrimaryKeyValueException(op.object->name, *op.property);
+                throw DuplicatePrimaryKeyValueException(op.object->name, op.property->name);
             }
         }
 
@@ -548,26 +553,23 @@ static void apply_post_migration_changes(Group& group, std::vector<SchemaChange>
         void operator()(MakePropertyRequired) { }
         void operator()(AddTable) { }
         void operator()(AddProperty) { }
-        void operator()(AddIndex) { }
-        void operator()(RemoveIndex) { }
-    } applier{group};
+    } applier{group, initial_schema};
 
     for (auto& change : changes) {
         change.visit(applier);
     }
 }
 
-static void validate_primary_column_uniqueness(Group const& group, Schema const& schema)
+static void validate_primary_column_uniqueness(Group const& group)
 {
-    for (auto& object_schema : schema) {
-        auto primary_prop = object_schema.primary_key_property();
-        if (!primary_prop) {
-            continue;
-        }
+    auto pk_table = group.get_table(c_primaryKeyTableName);
+    for (size_t i = 0, count = pk_table->size(); i < count; ++i) {
+        StringData object_type = pk_table->get_string(c_primaryKeyObjectClassColumnIndex, i);
+        StringData primary_property = pk_table->get_string(c_primaryKeyPropertyNameColumnIndex, i);
 
-        ConstTableRef table = ObjectStore::table_for_object_type(group, object_schema.name);
-        if (table->get_distinct_view(primary_prop->table_column).size() != table->size()) {
-            throw DuplicatePrimaryKeyValueException(object_schema.name, *primary_prop);
+        auto table = ObjectStore::table_for_object_type(group, object_type);
+        if (table->get_distinct_view(table->get_column_index(primary_property)).size() != table->size()) {
+            throw DuplicatePrimaryKeyValueException(object_type, primary_property);
         }
     }
 }
@@ -612,18 +614,17 @@ void ObjectStore::apply_schema_changes(Group& group, Schema& schema, uint64_t& s
 
             // Migration function may have changed the schema, so we need to re-read it
             schema = schema_from_group(group);
-            validate_primary_column_uniqueness(group, schema);
+            apply_post_migration_changes(group, schema.compare(target_schema), old_schema);
+            validate_primary_column_uniqueness(group);
         }
         catch (...) {
             schema = move(old_schema);
             schema_version = old_version;
             throw;
         }
-
-        apply_post_migration_changes(group, schema.compare(target_schema));
     }
     else {
-        apply_post_migration_changes(group, changes);
+        apply_post_migration_changes(group, changes, {});
     }
 
     set_schema_version(group, target_schema_version);
@@ -678,14 +679,78 @@ bool ObjectStore::is_empty(Group const& group) {
     return true;
 }
 
+void ObjectStore::rename_property(Group& group, Schema& passed_schema, StringData object_type, StringData old_name, StringData new_name)
+{
+    TableRef table = table_for_object_type(group, object_type);
+    if (!table) {
+        throw std::logic_error(util::format("Cannot rename properties for type `%1` because it is not managed by the Realm.", object_type));
+    }
+
+    auto passed_object_schema = passed_schema.find(object_type);
+    if (passed_object_schema == passed_schema.end()) {
+        throw std::logic_error(util::format("Cannot rename properties for type `%1` because it has been removed from the Realm.", object_type));
+    }
+
+    ObjectSchema matching_schema(group, object_type);
+    Property *old_property = matching_schema.property_for_name(old_name);
+    if (!old_property) {
+        throw std::logic_error(util::format("Cannot rename property `%1.%2` because it does not exist.", object_type, old_name));
+    }
+
+    Property *new_property = matching_schema.property_for_name(new_name);
+    if (!new_property) {
+        // new property not in new schema, which means we're probably renaming
+        // to an intermediate property in a multi-version migration.
+        // this is safe because the migration will fail schema validation unless
+        // this property is renamed again.
+        new_property = matching_schema.property_for_name(old_name);
+        new_property->name = new_name;
+        table->rename_column(old_property->table_column, new_name);
+        return;
+    }
+
+    if (old_property->type != new_property->type || old_property->object_type != new_property->object_type) {
+        throw std::logic_error(util::format("Cannot rename property `%1.%2` to `%3` because it would change from type `%4` to `%5`",
+                                            object_type, old_name, new_name, old_property->type_string(), new_property->type_string()));
+    }
+
+    if (passed_object_schema->property_for_name(old_name)) {
+        throw std::logic_error(util::format("Cannot rename property `%1.%2` because it is still present in the target schema.",
+                                            object_type, old_name));
+    }
+
+    if (old_property->is_nullable && !new_property->is_nullable) {
+        throw std::logic_error(util::format("Cannot rename property `%1.%2` to `%3` because it would change from nullable to required.",
+                                            object_type, old_name, new_name));
+    }
+
+    size_t column_to_remove = new_property->table_column;
+    table->rename_column(old_property->table_column, new_name);
+    table->remove_column(column_to_remove);
+
+    // update table_column for each property since it may have shifted
+    for (auto& current_prop : passed_object_schema->persisted_properties) {
+        auto target_prop = matching_schema.property_for_name(current_prop.name);
+        current_prop.table_column = target_prop->table_column;
+    }
+    old_property->name = new_name;
+
+    // update nullability for column
+    if (new_property->is_nullable && !old_property->is_nullable) {
+        auto prop = *new_property;
+        prop.table_column = old_property->table_column;
+        make_property_optional(group, *table, prop);
+    }
+}
+
 InvalidSchemaVersionException::InvalidSchemaVersionException(uint64_t old_version, uint64_t new_version)
 : logic_error(util::format("Provided schema version %1 is less than last set version %2.", new_version, old_version))
 , m_old_version(old_version), m_new_version(new_version)
 {
 }
 
-DuplicatePrimaryKeyValueException::DuplicatePrimaryKeyValueException(std::string const& object_type, Property const& property)
-: logic_error(util::format("Primary key property '%1' has duplicate values after migration.", property.name))
+DuplicatePrimaryKeyValueException::DuplicatePrimaryKeyValueException(std::string object_type, std::string property)
+: logic_error(util::format("Primary key property '%1.%2' has duplicate values after migration.", object_type, property))
 , m_object_type(object_type), m_property(property)
 {
 }
