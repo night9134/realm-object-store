@@ -42,7 +42,7 @@ public:
 
     // check if any of the schema changes in the list require a migration, and
     // if any do throw an exception
-    static void verify_no_migration_required(std::vector<SchemaChange> const& changes);
+    static void verify_no_migration_required(std::vector<SchemaChange> const& changes, bool additive);
 
     // updates a Realm from old_schema to the given target schema, creating and updating tables as needed
     // passed in target schema is updated with the correct column mapping
@@ -50,7 +50,8 @@ public:
     // NOTE: must be performed within a write transaction
     static void apply_schema_changes(Group& group, Schema& schema, uint64_t& schema_version,
                                      Schema const& target_schema, uint64_t target_schema_version,
-                                     std::vector<SchemaChange> const& changes, std::function<void()> migration_function={});
+                                     bool additive_mode, std::vector<SchemaChange> const& changes,
+                                     std::function<void()> migration_function={});
 
     static bool needs_migration(std::vector<SchemaChange> const& changes);
 
@@ -113,7 +114,7 @@ struct SchemaValidationException : public std::logic_error {
 };
 
 struct SchemaMismatchException : public std::logic_error {
-    SchemaMismatchException(std::vector<ObjectSchemaValidationException> const& errors);
+    SchemaMismatchException(std::vector<ObjectSchemaValidationException> const& errors, bool additive);
 };
 } // namespace realm
 

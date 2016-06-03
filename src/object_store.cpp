@@ -291,7 +291,6 @@ struct IndexUpdater {
         table_for_object_schema(group, *op.object)->remove_search_index(op.property->table_column);
     }
 };
-
 } // anonymous namespace
 
 bool ObjectStore::needs_migration(std::vector<SchemaChange> const& changes)
@@ -313,10 +312,13 @@ bool ObjectStore::needs_migration(std::vector<SchemaChange> const& changes)
                        [](auto&& change) { return change.visit(Visitor()); });
 }
 
-void ObjectStore::verify_no_migration_required(std::vector<SchemaChange> const& changes)
+void ObjectStore::verify_no_migration_required(std::vector<SchemaChange> const& changes, bool additive)
 {
     using namespace schema_change;
     struct Applier : MigrationChecker {
+        Applier(bool additive) : additive(additive) { }
+
+        bool additive;
         const ObjectSchema* current_object_schema = nullptr;
 
         using MigrationChecker::operator();
@@ -328,21 +330,21 @@ void ObjectStore::verify_no_migration_required(std::vector<SchemaChange> const& 
 
         void operator()(AddProperty op)
         {
-            if (op.object != current_object_schema) {
+            if (op.object != current_object_schema && !additive) {
                 MigrationChecker::operator()(op);
             }
         }
 
         void operator()(AddIndex) { }
         void operator()(RemoveIndex) { }
-    } applier;
+    } applier(additive);
 
     for (auto& change : changes) {
         change.visit(applier);
     }
 
     if (!applier.errors.empty()) {
-        throw SchemaMismatchException(applier.errors);
+        throw SchemaMismatchException(applier.errors, additive);
     }
 }
 
@@ -379,7 +381,7 @@ static void apply_non_migration_changes(Group& group, std::vector<SchemaChange> 
     }
 
     if (!applier.errors.empty()) {
-        throw SchemaMismatchException(applier.errors);
+        throw SchemaMismatchException(applier.errors, false);
     }
 }
 
@@ -576,24 +578,39 @@ static void validate_primary_column_uniqueness(Group const& group)
 
 void ObjectStore::apply_schema_changes(Group& group, Schema& schema, uint64_t& schema_version,
                                        Schema const& target_schema, uint64_t target_schema_version,
-                                       std::vector<SchemaChange> const& changes, std::function<void()> migration_function)
+                                       bool additive_mode, std::vector<SchemaChange> const& changes,
+                                       std::function<void()> migration_function)
 {
-    if (schema_version > target_schema_version && schema_version != ObjectStore::NotVersioned) {
-        throw InvalidSchemaVersionException(schema_version, target_schema_version);
-    }
     create_metadata_tables(group);
-
-    if (schema_version == target_schema_version) {
-        apply_non_migration_changes(group, changes);
-        schema = target_schema;
-        set_schema_columns(group, schema);
-        return;
-    }
 
     if (schema_version == ObjectStore::NotVersioned) {
         create_initial_tables(group, changes);
         set_schema_version(group, target_schema_version);
         schema_version = target_schema_version;
+        schema = target_schema;
+        set_schema_columns(group, schema);
+        return;
+    }
+
+    if (additive_mode) {
+        if (schema_version > target_schema_version) {
+            // FIXME: filter out index updates?
+        }
+        apply_pre_migration_changes(group, changes);
+        apply_post_migration_changes(group, changes, {});
+
+        if (schema_version < target_schema_version) {
+            schema_version = target_schema_version;
+            set_schema_version(group, target_schema_version);
+        }
+
+        schema = target_schema;
+        set_schema_columns(group, schema);
+        return;
+    }
+
+    if (schema_version == target_schema_version) {
+        apply_non_migration_changes(group, changes);
         schema = target_schema;
         set_schema_columns(group, schema);
         return;
@@ -772,9 +789,13 @@ SchemaValidationException::SchemaValidationException(std::vector<ObjectSchemaVal
 {
 }
 
-SchemaMismatchException::SchemaMismatchException(std::vector<ObjectSchemaValidationException> const& errors)
+SchemaMismatchException::SchemaMismatchException(std::vector<ObjectSchemaValidationException> const& errors, bool additive)
 : std::logic_error([&] {
-    std::string message = "Migration is required due to the following errors:";
+    std::string message;
+    if (additive)
+        message = "The following changes cannot be made in additive-only schema mode:";
+    else
+        message = "Migration is required due to the following errors:";
     for (auto const& error : errors) {
         message += std::string("\n- ") + error.what();
     }

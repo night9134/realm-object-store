@@ -88,7 +88,7 @@ std::shared_ptr<Realm> RealmCoordinator::get_realm(Realm::Config config)
         }
     }
 
-    if (config.schema_mode > SchemaMode::ResetFile)
+    if (config.schema_mode > SchemaMode::Additive)
         throw "not implemented";
 
     if (config.cache) {
