@@ -34,6 +34,7 @@ using namespace realm::_impl;
 
 Realm::Realm(Config config, std::shared_ptr<RealmCoordinator> coordinator)
 : m_config(std::move(config))
+, m_coordinator(std::move(coordinator))
 {
     open_with_config(m_config, m_history, m_shared_group, m_read_only_group, this);
 
@@ -42,9 +43,9 @@ Realm::Realm(Config config, std::shared_ptr<RealmCoordinator> coordinator)
     }
 
     // if there is an existing realm at the current path steal its schema/column mapping
-    if (auto existing = coordinator ? coordinator->get_schema() : nullptr) {
+    if (auto existing = m_coordinator ? m_coordinator->get_schema() : nullptr) {
         m_schema = *existing;
-        m_schema_version = coordinator->get_schema_version();
+        m_schema_version = m_coordinator->get_schema_version();
     }
     else {
         // otherwise get the schema from the group
@@ -58,9 +59,12 @@ Realm::Realm(Config config, std::shared_ptr<RealmCoordinator> coordinator)
         }
     }
 
-    // Needs to be at the end or we'll deadlock if any of the things above
-    // throw
-    m_coordinator = std::move(coordinator);
+    if (m_config.schema) {
+        auto schema = std::move(*m_config.schema);
+        m_config.schema = util::none;
+        update_schema(std::move(schema), m_config.schema_version,
+                      std::move(m_config.migration_function));
+    }
 }
 
 REALM_NOINLINE static void translate_file_exception(StringData path, bool read_only=false)

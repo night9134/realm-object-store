@@ -105,13 +105,6 @@ std::shared_ptr<Realm> RealmCoordinator::get_realm(Realm::Config config)
     }
 
     m_weak_realm_notifiers.emplace_back(realm, m_config.cache);
-
-    if (realm->config().schema) {
-        realm->update_schema(std::move(*realm->config().schema),
-                             realm->config().schema_version,
-                             std::move(realm->config().migration_function));
-    }
-
     return realm;
 }
 
