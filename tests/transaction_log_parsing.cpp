@@ -17,12 +17,13 @@ using namespace realm;
 
 class CaptureHelper {
 public:
-    CaptureHelper(std::string const& path, SharedRealm const& r, LinkViewRef lv)
+    CaptureHelper(std::string const& path, SharedRealm const& r, LinkViewRef lv, size_t table_ndx)
     : m_history(make_client_history(path))
     , m_sg(*m_history, SharedGroup::durability_MemOnly)
     , m_realm(r)
     , m_group(m_sg.begin_read())
     , m_linkview(lv)
+    , m_table_ndx(table_ndx)
     {
         m_realm->begin_transaction();
 
@@ -31,12 +32,12 @@ public:
             m_initial.push_back(lv->get(i).get_int(0));
     }
 
-    CollectionChangeSet finish(size_t ndx) {
+    CollectionChangeSet finish() {
         m_realm->commit_transaction();
 
         _impl::CollectionChangeBuilder c;
         _impl::TransactionChangeInfo info;
-        info.lists.push_back({ndx, 0, 0, &c});
+        info.lists.push_back({m_table_ndx, 0, 0, &c});
         info.table_modifications_needed.resize(m_group.size(), true);
         info.table_moves_needed.resize(m_group.size(), true);
         _impl::transaction::advance(m_sg, info);
@@ -60,6 +61,7 @@ private:
 
     LinkViewRef m_linkview;
     std::vector<int_fast64_t> m_initial;
+    size_t m_table_ndx;
 
     void validate(CollectionChangeSet const& info)
     {
@@ -264,6 +266,28 @@ TEST_CASE("Transaction log parsing") {
             REQUIRE_INDICES(info.tables[2].insertions, 2, 3);
             REQUIRE_MOVES(info.tables[2], {8, 3}, {9, 2});
         }
+
+        SECTION("inserting new tables does not distrupt change tracking") {
+            auto info = track_changes({false, false, true}, [&] {
+                table.add_empty_row();
+                r->read_group().insert_table(0, "new table");
+                table.add_empty_row();
+            });
+            REQUIRE(info.tables.size() == 4);
+            REQUIRE_INDICES(info.tables[3].insertions, 10, 11);
+        }
+
+        SECTION("reordering tables does not distrupt change tracking") {
+            auto info = track_changes({false, false, true}, [&] {
+                table.add_empty_row();
+                r->read_group().move_table(2, 0);
+                table.add_empty_row();
+                r->read_group().move_table(0, 1);
+                table.add_empty_row();
+            });
+            REQUIRE(info.tables.size() == 3);
+            REQUIRE_INDICES(info.tables[1].insertions, 10, 11, 12);
+        }
     }
 
     SECTION("LinkView change information") {
@@ -294,7 +318,7 @@ TEST_CASE("Transaction log parsing") {
         r->commit_transaction();
 
 #define VALIDATE_CHANGES(out) \
-    for (CaptureHelper helper(config.path, r, lv); helper; out = helper.finish(origin->get_index_in_group()))
+    for (CaptureHelper helper(config.path, r, lv, origin->get_index_in_group()); helper; out = helper.finish())
 
         CollectionChangeSet changes;
         SECTION("single change type") {
@@ -795,6 +819,50 @@ TEST_CASE("Transaction log parsing") {
             REQUIRE(changes.insertions.empty());
             REQUIRE(changes.deletions.empty());
             REQUIRE(changes.modifications.empty());
+        }
+
+        SECTION("inserting new tables does not distrupt change tracking") {
+            VALIDATE_CHANGES(changes) {
+                lv->add(0);
+                r->read_group().insert_table(0, "new table");
+                lv->add(0);
+            }
+            REQUIRE_INDICES(changes.insertions, 10, 11);
+        }
+
+        SECTION("reordering tables does not distrupt change tracking") {
+            VALIDATE_CHANGES(changes) {
+                lv->add(0);
+                r->read_group().move_table(2, 0);
+                lv->add(0);
+                r->read_group().move_table(0, 3);
+                lv->add(0);
+            }
+            REQUIRE_INDICES(changes.insertions, 10, 11, 12);
+        }
+
+        SECTION("inserting new columns does not distrupt change tracking") {
+            VALIDATE_CHANGES(changes) {
+                lv->add(0);
+                origin->insert_column(0, type_Int, "new column");
+                lv->add(0);
+            }
+            REQUIRE_INDICES(changes.insertions, 10, 11);
+        }
+
+        SECTION("reordering columns does not distrupt change tracking") {
+            VALIDATE_CHANGES(changes) {
+                origin->insert_column(1, type_Int, "new column 1");
+                origin->insert_column(2, type_Int, "new column 2");
+                origin->insert_column(3, type_Int, "new column 3");
+
+                lv->add(0);
+                _impl::TableFriend::move_column(*origin->get_descriptor(), 0, 3);
+                lv->add(0);
+                _impl::TableFriend::move_column(*origin->get_descriptor(), 3, 1);
+                lv->add(0);
+            }
+            REQUIRE_INDICES(changes.insertions, 10, 11, 12);
         }
     }
 }
