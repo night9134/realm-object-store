@@ -26,6 +26,7 @@ class BindingContext;
 enum class SchemaMode : uint8_t;
 
 namespace _impl {
+class NotifierPackage;
 struct TransactionChangeInfo;
 
 namespace transaction {
@@ -33,12 +34,16 @@ namespace transaction {
 // Must not be called from within a write transaction.
 void advance(SharedGroup& sg, BindingContext* binding_context,
              SchemaMode schema_mode,
-             SharedGroup::VersionID version=SharedGroup::VersionID{});
+             NotifierPackage&);
+void advance(SharedGroup& sg, BindingContext* binding_context,
+             SchemaMode schema_mode,
+             SharedGroup::VersionID);
 
 // Begin a write transaction
 // If the read transaction version is not up to date, will first advance to the
 // most recent read transaction and sent notifications to delegate
-void begin(SharedGroup& sg, BindingContext* binding_context, SchemaMode schema_mode);
+void begin(SharedGroup& sg, BindingContext* binding_context, SchemaMode schema_mode,
+           NotifierPackage&);
 void begin_without_validation(SharedGroup& sg);
 
 // Commit a write transaction
