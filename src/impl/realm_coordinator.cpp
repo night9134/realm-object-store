@@ -207,9 +207,25 @@ void RealmCoordinator::clear_all_caches()
     }
 }
 
-void RealmCoordinator::send_commit_notifications()
+void RealmCoordinator::wake_up_notifier_worker()
+{
+    if (m_notifier) {
+        m_notifier->notify_others();
+    }
+}
+
+void RealmCoordinator::send_commit_notifications(Realm& realm)
 {
     REALM_ASSERT(!m_config.read_only());
+    {
+        // FIXME: need to acquire this lock sooner, because in theory someone else
+        // could call notify_others() before we set the skip version
+        std::lock_guard<std::mutex> l(m_notifier_mutex);
+        auto ver = Realm::Internal::get_shared_group(realm).get_version_of_current_transaction();
+        m_notifier_skip_version = ver.version;
+        m_notifier_skip_index = ver.index;
+    }
+
     if (m_notifier) {
         m_notifier->notify_others();
     }
@@ -465,10 +481,30 @@ void RealmCoordinator::run_async_notifiers()
     }
     REALM_ASSERT_3(m_advancer_sg->get_transact_stage(), ==, SharedGroup::transact_Ready);
 
+    SharedGroup::VersionID skip_version{m_notifier_skip_version, m_notifier_skip_index};
+    m_notifier_skip_version = 0;
+    m_notifier_skip_index = 0;
+
     // Make a copy of the notifiers vector and then release the lock to avoid
     // blocking other threads trying to register or unregister notifiers while we run them
     auto notifiers = m_notifiers;
     lock.unlock();
+
+    if (skip_version.version) {
+        REALM_ASSERT(version >= skip_version);
+        IncrementalChangeInfo change_info(*m_notifier_sg, m_config.schema_mode, notifiers);
+        for (auto& notifier : notifiers)
+            notifier->add_required_change_info(change_info.current());
+        change_info.advance_to_final(skip_version);
+
+        for (auto& notifier : notifiers)
+            notifier->run();
+
+        lock.lock();
+        for (auto& notifier : notifiers)
+            notifier->prepare_handover();
+        lock.unlock();
+    }
 
     // Advance the non-new notifiers to the same version as we advanced the new
     // ones to (or the latest if there were no new ones)

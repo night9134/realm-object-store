@@ -115,6 +115,8 @@ public:
     // called from any thread.
     void remove_callback(size_t token);
 
+    void suppress_next_notification(size_t token);
+
     // ------------------------------------------------------------------------
     // API for RealmCoordinator to manage running things and calling callbacks
 
@@ -196,6 +198,7 @@ private:
         CollectionChangeSet changes_to_deliver;
         size_t token;
         bool initial_delivered;
+        bool skip_next;
     };
 
     // Currently registered callbacks and a mutex which must always be held
@@ -213,10 +216,10 @@ private:
     // remove_callback() updates this when needed
     size_t m_callback_index = npos;
 
-    CollectionChangeCallback next_callback(bool has_changes, bool pre);
-
     template<typename Fn>
     void for_each_callback(Fn&& fn);
+
+    std::vector<Callback>::iterator find_callback(size_t token);
 };
 
 // A smart pointer to a CollectionNotifier that unregisters the notifier when

@@ -59,7 +59,8 @@ public:
 
     // Asynchronously call notify() on every Realm instance for this coordinator's
     // path, including those in other processes
-    void send_commit_notifications();
+    void send_commit_notifications(Realm&);
+    void wake_up_notifier_worker();
 
     // Clear the weak Realm cache for all paths
     // Should only be called in test code, as continuing to use the previously
@@ -113,6 +114,8 @@ private:
     std::condition_variable m_notifier_cv;
     std::vector<std::shared_ptr<_impl::CollectionNotifier>> m_new_notifiers;
     std::vector<std::shared_ptr<_impl::CollectionNotifier>> m_notifiers;
+    uint_fast64_t m_notifier_skip_version = 0;
+    uint_fast32_t m_notifier_skip_index = 0;
 
     // SharedGroup used for actually running async notifiers
     // Will have a read transaction iff m_notifiers is non-empty

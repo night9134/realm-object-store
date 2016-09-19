@@ -509,6 +509,73 @@ TEST_CASE("notifications: async delivery") {
     }
 }
 
+TEST_CASE("stuff") {
+    InMemoryTestFile config;
+    config.cache = false;
+    config.automatic_change_notifications = false;
+
+    auto r = Realm::get_shared_realm(config);
+    r->update_schema({
+        {"object", {
+            {"value", PropertyType::Int}
+        }},
+    });
+
+    auto coordinator = _impl::RealmCoordinator::get_existing_coordinator(config.path);
+    auto table = r->read_group().get_table("class_object");
+
+    r->begin_transaction();
+    table->add_empty_row(10);
+    for (int i = 0; i < 10; ++i)
+        table->set_int(0, i, i * 2);
+    r->commit_transaction();
+
+    Results results(r, table->where());
+
+    int notification_calls1 = 0;
+    CollectionChangeSet changes;
+    auto token = results.add_notification_callback([&](CollectionChangeSet c, std::exception_ptr err) {
+        REQUIRE_FALSE(err);
+        ++notification_calls1;
+        changes = std::move(c);
+    });
+    int notification_calls2 = 0;
+    CollectionChangeSet changes2;
+    auto token2 = results.add_notification_callback([&](CollectionChangeSet c, std::exception_ptr err) {
+        REQUIRE_FALSE(err);
+        ++notification_calls2;
+        changes2 = std::move(c);
+    });
+
+    auto make_local_change = [&] {
+        r->begin_transaction();
+        table->add_empty_row();
+        r->commit_transaction();
+    };
+
+    auto make_remote_change = [&] {
+        auto r2 = coordinator->get_realm();
+        r2->begin_transaction();
+        r2->read_group().get_table("class_object")->add_empty_row();
+        r2->commit_transaction();
+    };
+
+    SECTION("stuff") {
+        advance_and_notify(*r);
+
+        r->begin_transaction();
+        table->add_empty_row();
+        token.suppress_next();
+        r->commit_transaction();
+        advance_and_notify(*r);
+
+        REQUIRE(notification_calls1 == 1);
+        REQUIRE(changes.empty());
+        REQUIRE(notification_calls2 == 2);
+        REQUIRE_INDICES(changes2.insertions, 10);
+    }
+}
+
 #if REALM_PLATFORM_APPLE
 TEST_CASE("notifications: async error handling") {
     InMemoryTestFile config;
